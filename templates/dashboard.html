@@ -1,0 +1,188 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .stat-card { transition: transform 0.3s; }
+        .stat-card:hover { transform: translateY(-5px); }
+        .btn-period.active { background-color: #17a2b8 !important; border-color: #17a2b8 !important; color: white !important; }
+
+        /* Mobile adjustments for dashboard KPIs */
+        @media (max-width: 767px) {
+            .row.g-4 .col-md-4, .row.g-4 .col-md-6 {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+            .display-3 { font-size: 3rem; }
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2 flex-wrap">
+            <h1 class="display-5 fw-bold text-info"><i class="fas fa-chart-line me-3"></i> Progress Dashboard</h1>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary mt-2 mt-sm-0"><i class="fas fa-arrow-left me-2"></i> Back to To Do List</a>
+        </div>
+
+        <h3 class="mb-3 mt-4">Global Status</h3>
+
+        <div class="row g-4 mb-5">
+            <div class="col-12 col-md-6">
+                <div class="card shadow stat-card border-start border-4 border-info">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">Total Active Tasks (Recurring & Future Once)</div>
+                        <h2 class="card-title fw-bold text-info">{{ total_active_tasks }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-6">
+                <div class="card shadow stat-card border-start border-4 border-warning">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">Unpurchased Shopping Items</div>
+                        <h2 class="card-title fw-bold text-warning">{{ unpurchased_items }}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h3 class="mb-3">Performance Overview (Recurring Tasks Only)</h3>
+
+        <div class="d-flex mb-3 gap-2 flex-wrap">
+            <a href="{{ url_for('dashboard', period='30d') }}" class="btn btn-sm btn-outline-info btn-period {% if current_period == '30d' and request.args.get('start_date') is none %}active{% endif %}">Last 30 Days</a>
+            <a href="{{ url_for('dashboard', period='1m') }}" class="btn btn-sm btn-outline-info btn-period {% if current_period == '1m' and request.args.get('start_date') is none %}active{% endif %}">Last Month</a>
+            <a href="{{ url_for('dashboard', period='2m') }}" class="btn btn-sm btn-outline-info btn-period {% if current_period == '2m' and request.args.get('start_date') is none %}active{% endif %}">Last 2 Months</a>
+            <a href="{{ url_for('dashboard', period='3m') }}" class="btn btn-sm btn-outline-info btn-period {% if current_period == '3m' and request.args.get('start_date') is none %}active{% endif %}">Last 3 Months</a>
+        </div>
+
+        <form method="GET" action="{{ url_for('dashboard') }}" class="row g-3 mb-4 align-items-end">
+            <div class="col-12 col-sm-auto">
+                <label for="start_date" class="form-label mb-0 small">Start Date</label>
+                <input type="date" class="form-control" id="start_date" name="start_date" value="{{ start_date_obj }}" required>
+            </div>
+            <div class="col-12 col-sm-auto">
+                <label for="end_date" class="form-label mb-0 small">End Date</label>
+                <input type="date" class="form-control" id="end_date" name="end_date" value="{{ end_date_obj }}" required>
+            </div>
+            <div class="col-12 col-sm-auto">
+                <button type="submit" class="btn btn-primary shadow-sm w-100 w-sm-auto">View Custom Range</button>
+            </div>
+        </form>
+
+        <p class="text-muted">Tracking recurring tasks from **{{ start_date_str }}** to **{{ end_date_str }}**</p>
+
+        <div class="row g-4 mb-5">
+            <div class="col-12 col-md-4">
+                <div class="card shadow stat-card border-start border-4 border-primary">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">Total Recurring Due</div>
+                        <h2 class="card-title fw-bold text-primary">{{ stats.total_due }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="card shadow stat-card border-start border-4 border-success">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">Completed Recurring</div>
+                        <h2 class="card-title fw-bold text-success">{{ stats.completed }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="card shadow stat-card border-start border-4 border-danger">
+                    <div class="card-body">
+                        <div class="text-muted small fw-bold">Recurring Not Done</div>
+                        <h2 class="card-title fw-bold text-danger">{{ stats.not_done }}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-5">
+            <div class="col-md-12 text-center">
+                <h2 class="mb-0">Your Efficiency:</h2>
+                <h1 class="display-3 fw-bold text-{% if efficiency >= 80 %}success{% elif efficiency >= 50 %}warning{% else %}danger{% endif %}">{{ "%.1f"|format(efficiency) }}%</h1>
+                <p class="text-muted">A higher percentage means better progress on recurring tasks.</p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card shadow p-4">
+                    <h4 class="card-title">Daily Completion Trend</h4>
+                    <canvas id="dailyCompletionChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Ensure data arrays are not empty before creating the chart
+        const labels = {{ progress_data.labels | tojson }};
+        if (labels.length > 0) {
+            const data = {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Completed',
+                        data: {{ progress_data.completed | tojson }},
+                        backgroundColor: 'rgba(40, 167, 69, 0.8)', // Success Green
+                        borderColor: 'rgba(40, 167, 69, 1)',
+                        borderWidth: 1,
+                        stack: 'Stack 0',
+                    },
+                    {
+                        label: 'Not Done',
+                        data: {{ progress_data.not_done | tojson }},
+                        backgroundColor: 'rgba(220, 53, 69, 0.8)', // Danger Red
+                        borderColor: 'rgba(220, 53, 69, 1)',
+                        borderWidth: 1,
+                        stack: 'Stack 0',
+                    }
+                ]
+            };
+
+            const config = {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            stacked: true,
+                            title: { display: true, text: 'Date' }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            title: { display: true, text: 'Tasks Count' }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                }
+            };
+
+            new Chart(
+                document.getElementById('dailyCompletionChart'),
+                config
+            );
+        } else {
+             // Display a message if no data exists for the selected range
+             const chartContainer = document.getElementById('dailyCompletionChart').parentNode;
+             chartContainer.innerHTML = '<p class="text-center text-muted mt-4 mb-4">No recurring tasks were due in this date range.</p>';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,537 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Flow</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* UI Refinement: Color-coding for task types */
+        .task-card[data-freq="Daily"] .card-body { border-color: #0d6efd !important; } /* Blue */
+        .task-card[data-freq="Weekly"] .card-body { border-color: #ffc107 !important; } /* Yellow/Warning */
+        .task-card[data-freq="Monthly"] .card-body { border-color: #6f42c1 !important; } /* Purple */
+        .task-card[data-freq="Once"] .card-body { border-color: #17a2b8 !important; } /* Cyan/Info */
+
+        /* Overriding pending color for better type visibility */
+        .task-card[data-freq="Once"].completed .card-body,
+        .task-card[data-freq="Daily"].completed .card-body,
+        .task-card[data-freq="Weekly"].completed .card-body,
+        .task-card[data-freq="Monthly"].completed .card-body { border-color: #198754 !important; } /* Success Green when done */
+
+        /* Mobile header adjustments */
+        @media (max-width: 767px) {
+            .header-controls { flex-direction: column; align-items: stretch !important; }
+            .header-controls > * { margin-bottom: 0.5rem; width: 100%; }
+            .header-controls .form-label.small { display: none; } /* Hide label on tiny screens */
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="container py-5">
+        <div class="row mb-4 align-items-center">
+            <div class="col-md-5">
+                <h1 class="display-4 fw-bold text-primary">Daily Flow</h1>
+            </div>
+            <div class="col-md-7 text-end d-flex justify-content-end align-items-center header-controls">
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-info me-md-3 shadow"><i class="fas fa-chart-line me-2"></i> Dashboard</a>
+
+                <form method="GET" action="/" class="d-flex align-items-center me-md-3">
+                    <label for="target_date" class="form-label mb-0 me-2 text-muted small">View Date:</label>
+                    <input type="date" class="form-control form-control-sm" id="target_date" name="target_date" 
+                        value="{{ today.strftime('%Y-%m-%d') }}" onchange="this.form.submit()">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary ms-2">Go</button>
+                </form>
+
+                <button type="button" class="btn btn-primary btn-lg shadow" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+                    <i class="fas fa-plus"></i> Add Task
+                </button>
+                <a href="/reset_db" class="btn btn-sm btn-outline-danger ms-2">Reset DB</a>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-12 col-md-4">
+                <div class="p-3 bg-white rounded shadow-sm h-100">
+                    <h4 class="border-bottom pb-2 mb-3 text-warning"><i class="fas fa-hourglass-half"></i> To Do Today</h4>
+
+                    <div id="pending-zone" class="drop-zone" ondrop="drop(event)" ondragover="allowDrop(event)">
+                        {% if pending|length == 0 %}
+                            <p class="text-muted text-center mt-5">Nothing pending for {{ today.strftime('%A') }}!</p>
+                        {% endif %}
+
+                        {% for task in pending %}
+                        {% set is_once = task.frequency == 'Once' %}
+                        <div class="card mb-3 task-card" 
+                            draggable="true" 
+                            ondragstart="drag(event)" 
+                            id="task-{{ task.id }}" data-id="{{ task.id }}" data-name="{{ task.taskname }}" data-desc="{{ task.taskdesc }}" data-freq="{{ task.frequency }}" data-start="{{ task.start_date.strftime('%Y-%m-%d') }}" data-end="{{ task.end_date.strftime('%Y-%m-%d') }}">
+                            <div class="card-body border-start border-4 border-warning">
+                                <div class="float-end dropdown">
+                                    <button class="btn btn-sm btn-light p-0" type="button" data-bs-toggle="dropdown" onclick="event.stopPropagation()"><i class="fas fa-ellipsis-v"></i></button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editTaskModal" onclick="populateEditModal({{ task.id }}); event.stopPropagation();"><i class="fas fa-pen me-2"></i> Edit Details</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <form method="POST" action="/edit_task/{{ task.id }}" onsubmit="return confirm('Permanently delete this task definition?'); event.stopPropagation();">
+                                                <input type="hidden" name="action" value="delete">
+                                                <button type="submit" class="dropdown-item text-danger"><i class="fas fa-trash me-2"></i> Delete Forever</button>
+                                            </form>
+                                        </li>
+                                        <li>
+                                            <form method="POST" action="/edit_task/{{ task.id }}" onsubmit="return confirm('Inactivate task? It will disappear from all daily lists.'); event.stopPropagation();">
+                                                <input type="hidden" name="action" value="inactivate">
+                                                <button type="submit" class="dropdown-item text-muted"><i class="fas fa-eye-slash me-2"></i> Mark Inactive</button>
+                                            </form>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <h5 class="card-title">{{ task.taskname }}</h5>
+                                <p class="card-text text-muted small">{{ task.taskdesc }}</p>
+                                <span class="badge bg-secondary">{{ task.frequency }}</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-4">
+                <div class="p-3 bg-white rounded shadow-sm h-100">
+                    <h4 class="border-bottom pb-2 mb-3 text-success"><i class="fas fa-check-circle"></i> Completed</h4>
+
+                    <div id="completed-zone" class="drop-zone" ondrop="drop(event)" ondragover="allowDrop(event)">
+                        {% for task in completed %}
+                        <div class="card mb-3 task-card completed" 
+                            id="task-{{ task.id }}" 
+                            data-id="{{ task.id }}" 
+                            data-freq="{{ task.frequency }}" 
+                            data-end="{{ task.end_date.strftime('%Y-%m-%d') }}" 
+                            draggable="true" 
+                            ondragstart="drag(event)">
+                            <div class="card-body border-start border-4 border-success">
+                                <h5 class="card-title text-decoration-line-through">{{ task.taskname }}</h5>
+                                <p class="card-text text-muted small">{{ task.taskdesc }}</p>
+                                <span class="badge bg-success">Done</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-4">
+                <div class="p-3 bg-white rounded shadow-sm h-100">
+                    <h4 class="border-bottom pb-2 mb-3 text-secondary"><i class="fas fa-shopping-cart"></i> Shopping List</h4>
+
+                    <form action="/add_item" method="POST" class="input-group mb-3">
+                        <input type="text" class="form-control" name="item_name" placeholder="Item name" required>
+                        <input type="text" class="form-control" name="item_quantity" placeholder="Qty (optional)">
+                        <button class="btn btn-outline-secondary" type="submit"><i class="fas fa-plus"></i> Add</button>
+                    </form>
+
+                    <ul class="list-group list-group-flush">
+                        {% for item in shopping_items %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center {% if item.is_purchased %}list-group-item-success{% endif %}" id="item-{{ item.id }}">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" {% if item.is_purchased %}checked{% endif %} onchange="togglePurchased({{ item.id }})">
+                                <label class="form-check-label {% if item.is_purchased %}text-decoration-line-through text-muted{% endif %}">
+                                    {{ item.name }}
+                                    {% if item.quantity %}<small class="ms-2 text-primary">({{ item.quantity }})</small>{% endif %}
+                                </label>
+                            </div>
+                            <form action="/delete_item/{{ item.id }}" method="POST" onsubmit="return confirm('Remove item from list?')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                            </form>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-5 g-4">
+
+            <div class="col-12 col-md-6">
+                <div class="p-4 bg-white rounded shadow-sm h-100">
+                    <h4 class="border-bottom pb-2 mb-3 text-secondary"><i class="fas fa-sticky-note"></i> Quick Notes</h4>
+
+                    <form action="/add_note" method="POST" class="mb-4">
+                        <textarea class="form-control mb-2" name="note_content" rows="2" placeholder="Write a quick note..." required></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary float-end">Add Note</button>
+                    </form>
+                    <div class="clearfix"></div>
+
+                    <ul class="list-group list-group-flush mt-3">
+                        {% for note in notes %}
+                        <li class="list-group-item d-flex justify-content-between align-items-start">
+                            <div>
+                                <p class="mb-0">{{ note.content }}</p>
+                                <small class="text-muted">Created: {{ note.created_date.strftime('%d %b, %H:%M') }}</small>
+                            </div>
+                            <form action="/delete_note/{{ note.id }}" method="POST" onsubmit="return confirm('Delete this note?')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger ms-3"><i class="fas fa-times"></i></button>
+                            </form>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="col-12 col-md-6">
+                <div class="p-4 bg-white rounded shadow-sm h-100">
+                    <h4 class="border-bottom pb-2 mb-3 text-info"><i class="fas fa-calendar-alt"></i> Future One-Time Tasks</h4>
+
+                    {% if future_once|length == 0 %}
+                        <p class="text-muted text-center">No one-time tasks scheduled for the future.</p>
+                    {% else %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Task Name</th>
+                                        <th>Due Date</th>
+                                        <th>Due In</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for task in future_once %}
+                                    <tr id="task-{{ task.id }}-table" 
+                                        data-id="{{ task.id }}" data-name="{{ task.taskname }}" 
+                                        data-desc="{{ task.taskdesc }}" data-freq="{{ task.frequency }}" 
+                                        data-start="{{ task.start_date.strftime('%Y-%m-%d') }}" 
+                                        data-end="{{ task.end_date.strftime('%Y-%m-%d') }}">
+
+                                        <td>
+                                            <strong>{{ task.taskname }}</strong>
+                                            <p class="text-muted small mb-0">{{ task.taskdesc }}</p>
+                                        </td>
+                                        <td><span class="badge bg-secondary">{{ task.end_date.strftime('%d %b %Y') }}</span></td>
+                                        <td>
+                                            <span class="badge bg-primary">In {{ task.due_since }} days</span>
+                                        </td>
+                                        <td>
+                                            <div class="dropdown">
+                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                                    Manage
+                                                </button>
+                                                <ul class="dropdown-menu">
+                                                    <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editTaskModal" onclick="populateEditModal({{ task.id }})"><i class="fas fa-pen me-2"></i> Edit Details</a></li>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <form method="POST" action="/edit_task/{{ task.id }}" onsubmit="return confirm('Permanently delete this task definition?')">
+                                                            <input type="hidden" name="action" value="delete">
+                                                            <button type="submit" class="dropdown-item text-danger"><i class="fas fa-trash me-2"></i> Delete Forever</button>
+                                                        </form>
+                                                    </li>
+                                                    <li>
+                                                        <form method="POST" action="/edit_task/{{ task.id }}" onsubmit="return confirm('Inactivate task? It will be removed entirely.')">
+                                                            <input type="hidden" name="action" value="inactivate">
+                                                            <button type="submit" class="dropdown-item text-muted"><i class="fas fa-eye-slash me-2"></i> Mark Inactive</button>
+                                                        </form>
+                                                    </li>
+                                                </ul>
+                                            </div>
+
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% endif %}
+
+                </div>
+            </div>
+        </div>
+
+    <div class="modal fade" id="addTaskModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">Create New Task</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form action="/add_task" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Task Name</label>
+                            <input type="text" class="form-control" name="taskname" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="taskdesc" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Frequency</label>
+                            <select class="form-select" name="frequency">
+                                <option value="Once">Once</option>
+                                <option value="Daily">Daily</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="Monthly">Monthly</option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">Start Date</label>
+                                <input type="date" class="form-control" name="start_date" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">End Date</label>
+                                <input type="date" class="form-control" name="end_date" required>
+                            </div >
+                        </div>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">Save Task</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editTaskModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title">Edit Task Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editForm" method="POST" action="">
+                        <div class="mb-3">
+                            <label class="form-label">Task Name</label>
+                            <input type="text" class="form-control" name="taskname" id="edit_name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="taskdesc" id="edit_desc" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Frequency</label>
+                            <select class="form-select" name="frequency" id="edit_freq">
+                                <option value="Once">Once</option>
+                                <option value="Daily">Daily</option>
+                                <option value="Weekly">Weekly</option>
+                                <option value="Monthly">Monthly</option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <label class="form-label">Start Date</label>
+                                <input type="date" class="form-control" name="start_date" id="edit_start" required>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label">End Date</label>
+                                <input type="date" class="form-control" name="end_date" id="edit_end" required>
+                            </div>
+                        </div>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-warning">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        const CURRENT_DATE = "{{ today.strftime('%Y-%m-%d') }}"; 
+
+        function populateEditModal(taskId) {
+            let taskElement = document.getElementById(`task-${taskId}`);
+            if (!taskElement) {
+                taskElement = document.getElementById(`task-${taskId}-table`);
+            }
+
+            document.getElementById('editForm').action = `/edit_task/${taskId}`;
+            document.getElementById('edit_name').value = taskElement.dataset.name;
+            document.getElementById('edit_desc').value = taskElement.dataset.desc;
+            document.getElementById('edit_freq').value = taskElement.dataset.freq;
+            document.getElementById('edit_start').value = taskElement.dataset.start;
+            document.getElementById('edit_end').value = taskElement.dataset.end;
+        }
+
+        // --- DRAG AND DROP HANDLERS (for desktop) ---
+        function allowDrop(ev) { ev.preventDefault(); }
+        function drag(ev) { 
+            // Only allow dragging if the target is a card and not the dropdown button
+            if (ev.target.closest('.task-card') && !ev.target.closest('.dropdown')) {
+                ev.dataTransfer.setData("text", ev.target.id); 
+                ev.dataTransfer.setData("taskId", ev.target.getAttribute('data-id')); 
+            }
+        }
+
+        // The existing drop logic (renamed to handleTaskToggle internally)
+        function drop(ev) {
+            ev.preventDefault();
+            const targetZone = ev.target.closest('.drop-zone');
+            if (!targetZone) return;
+
+            const data = ev.dataTransfer.getData("text");
+            const taskId = ev.dataTransfer.getData("taskId");
+            if (!taskId) return; 
+
+            const isCompleted = targetZone.id === 'completed-zone';
+
+            // Call the unified toggle function, triggered by a successful drop
+            handleTaskToggle(taskId, isCompleted, document.getElementById(data));
+        }
+
+        // --- DOUBLE-CLICK/DOUBLE-TAP HANDLER (For desktop and mobile) ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const taskCards = document.querySelectorAll('.task-card');
+            taskCards.forEach(card => {
+                // 1. Double-click listener for desktop
+                card.addEventListener('dblclick', function(event) {
+                    event.stopPropagation();
+                    // Ignore dblclick if inside the dropdown
+                    if (event.target.closest('.dropdown')) {
+                        return; 
+                    }
+
+                    const taskId = this.getAttribute('data-id');
+                    // Determine current state based on presence of 'completed' class
+                    const isCurrentlyCompleted = this.classList.contains('completed');
+                    const shouldComplete = !isCurrentlyCompleted;
+
+                    handleTaskToggle(taskId, shouldComplete, this);
+                });
+
+                // 2. Double-tap simulation for mobile (using click event)
+                // Note: dblclick is unreliable on many mobile browsers. 
+                // This creates a custom double-tap logic.
+                let lastClickTime = 0;
+                card.addEventListener('click', function(event) {
+                    // Prevent single click on non-card elements from triggering double-tap logic
+                    if (event.target.closest('.dropdown')) {
+                        return; 
+                    }
+
+                    const currentTime = new Date().getTime();
+                    const timeDifference = currentTime - lastClickTime;
+                    const DOUBLE_TAP_THRESHOLD = 300; // milliseconds
+
+                    if (timeDifference < DOUBLE_TAP_THRESHOLD && timeDifference > 0) {
+                        // Double-tap detected
+                        event.preventDefault(); // Prevent accidental single click actions (like text selection)
+
+                        const taskId = this.getAttribute('data-id');
+                        const isCurrentlyCompleted = this.classList.contains('completed');
+                        const shouldComplete = !isCurrentlyCompleted;
+
+                        handleTaskToggle(taskId, shouldComplete, this);
+                        lastClickTime = 0; // Reset for next double-tap
+                    } else {
+                        // First tap or time too long for double-tap
+                        lastClickTime = currentTime;
+                    }
+
+                    // Stop propagation so the card tap doesn't affect other elements 
+                    // unless it was a dropdown action, which is handled above.
+                    event.stopPropagation();
+                });
+            });
+        });
+
+
+        // --- UNIFIED TOGGLE LOGIC ---
+        function handleTaskToggle(taskId, shouldComplete, taskElement) {
+            const targetZoneId = shouldComplete ? 'completed-zone' : 'pending-zone';
+            const targetZone = document.getElementById(targetZoneId);
+
+            const taskFreq = taskElement.getAttribute('data-freq');
+            const isOnceTask = taskFreq === 'Once';
+
+            let apiUrl = shouldComplete ? '/complete_task' : '/uncomplete_task';
+            let permanentCompletion = false; 
+
+            if (shouldComplete && isOnceTask) {
+                const taskEndDate = new Date(taskElement.getAttribute('data-end'));
+                const currentDate = new Date(CURRENT_DATE);
+
+                currentDate.setHours(0,0,0,0);
+                taskEndDate.setHours(0,0,0,0);
+
+                // If a "Once" task is completed BEFORE or ON its end date, we inactivate it immediately.
+                if (taskEndDate >= currentDate) {
+                    permanentCompletion = true;
+                }
+            }
+
+            if (permanentCompletion) {
+                // 1. Inactivate the task
+                fetch(`/edit_task/${taskId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'action=inactivate' 
+                })
+                .then(response => {
+                    if (response.ok) {
+                        // 2. Register completion
+                        return fetch('/complete_task', {
+                            method: 'POST', 
+                            headers: {'Content-Type': 'application/json'}, 
+                            body: JSON.stringify({ task_id: taskId, completion_date: CURRENT_DATE })
+                        });
+                    } else {
+                        throw new Error('Inactivation failed');
+                    }
+                })
+                .then(completionResponse => {
+                    // 3. Reload the page to reflect the removal/completion
+                    window.location.reload(); 
+                })
+                .catch(error => {
+                    console.error('Permanent completion process failed:', error);
+                });
+
+            } else {
+                // STANDARD HANDLER (Toggle visually and call API)
+                if (targetZone) {
+                    targetZone.appendChild(taskElement);
+                }
+                taskElement.classList.toggle('completed', shouldComplete);
+
+                const titleElement = taskElement.querySelector('.card-title');
+                if (titleElement) {
+                    titleElement.classList.toggle('text-decoration-line-through', shouldComplete);
+                }
+
+                const body = JSON.stringify({ task_id: taskId, completion_date: CURRENT_DATE });
+
+                fetch(apiUrl, {
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: body
+                })
+                .catch(error => {
+                    console.error('API Error:', error);
+                    // Optional: Revert UI change if API fails
+                });
+            }
+        }
+
+        // --- SHOPPING LIST FUNCTION ---
+        function togglePurchased(itemId) {
+            fetch(`/toggle_item/${itemId}`, {
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Reload to reflect the sort order (unpurchased always on top)
+                window.location.reload(); 
+            })
+            .catch(error => console.error('Error toggling item:', error));
+        }
+    </script>
+</body>
+</html>
