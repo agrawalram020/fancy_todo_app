@@ -17,7 +17,8 @@ app = Flask(__name__)
 
 # --- Configuration ---
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'todo.db')
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'todo.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql://neondb_owner:npg_KoFBmZX87UwN@ep-winter-credit-ai6f8xo0-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
